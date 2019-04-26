@@ -45,9 +45,12 @@ AdjustAngle::usage="AdjustAngle[st] adjusts the angles in a gate sequence st to 
 ListFormToStr::usage="ListFormToStr[st] transforms a list in list format to a list containing the corresponding string representations of the gates."
 SimplifyGateList::usage="SimplifyGateList[st] simplifies a gate sequence on in list format st by merging and commuting single-qubit and C-NOT gates (see the full documentation for more details)."
 NSimplifyGateList::usage"NSimplifyGateList[st] simplifies a gate sequence (numerically) in list format st by merging and commuting single-qubit and C-NOT gates (see the full documentation for more details)."
+NumberOfQubits::usage"NumberOfQubits[st] finds the largest qubit number featured in the list format st ."
 (*Create gates in list form*)
 CNOT::usage="CNOT[i,j] creates a C-NOT gate in list form with control qubit i and target qubit j."
 CZ::usage="CZ[i,j] creates a controlled-Z gate in list form with control qubit i and target qubit j."
+XX::usage="XX[phi,i,j] creates an XX gate in list form with parameter phi acting on qubits i,j."
+RGate::usage="RGate[theta,phi,i] creates an R gate in list form with parameters theta,phi acting on qubit i."
 Diag::usage="Diag[entr,act] creates a  is a diagonal gate with diagonal entries given as a list entr and acting on the qubits listed in act."
 Rx::usage="Rx[angle,act] creates an Rx gate in list form on the qubit act and with angle angle."
 Ry::usage="Ry[diag,act] creates an Ry gate in list form on the qubit act and with angle angle."
@@ -65,6 +68,8 @@ RyM::usage="RyM[\[Alpha],i,n] creates a rotation gate around the y axis with ang
 RzM::usage="RzM[\[Alpha],i,n] creates a rotation gate around the z axis with angle \[Alpha] on qubit with number i, where the total number of qubits is n."
 CNOTM::usage="CNOTM[i,j,n] creates a C-NOT gate on n qubits with control on the ith qubit and target on the jth qubit." 
 CZM::usage="CZM[i,j,n] creates a controlled-Z gate on n qubits with control on the ith qubit and target on the jth qubit." 
+XXM::usage="XXM[phi,{i,j},n] creates an XX gate with parameter phi acting on the i,j qubits with n qubits in total." 
+RGateM::usage="RGateM[theta,phi,i,n] creates an R-gate with parameters theta,phi acting on the ith qubit with n qubits in total." 
 DiagMat::usage="DiagMat[diag,act,n] creates a diagonal matrix with diagonal entries in the list diag representing a diagonal gate on n qubits acting on the qubits in the list act." 
 RzAngle::usage="RzAngle[Rz(\[Theta])] extracts the rotation angle \[Theta] from a rotation gate Rz (\[Theta])."
 RyAngle::usage="RyAngle[Ry(\[Theta])] extracts the rotation angle \[Theta] from a rotation gate Ry (\[Theta])."
@@ -145,6 +150,12 @@ POVMToIsometry::usage="TBA."
 DecChannelInQCM::usage="TBA."
 DecPOVMInQCM::usage="TBA."
 PrepareForQASM::usage="PrepareForQASM[gatelist] takes a list of gates and prepares it into a form suitable for use with the python script that converts to QASM."
+PickRandomCircuitIsometry::usage="PickRandomCircuitIsometry[m,n,t] creates a random circuit from m qubits to n qubits with t CNOTs, where an arbitrary single qubit unitary is included at the start and after each CNOT. With Option TotGates->True, the value of t is the total number of gates and these are placed randomly."
+RxRGateDecomp::usage="RxRGateDecomp[u] takes a single qubit unitary u and outputs (a,b,c,d) such that u is equal to Rx[a] followed by R[b,c] up to the phase E^(I*d)."
+ReplaceCNOTWithXX::usage="ReplaceCNOTWithXX[st] takes a gate list and replaces all CNOT gates with XX gates and additional single qubit rotations."
+ReplaceXXWithCNOT::usage="ReplaceXXWithCNOT[st] takes a gate list and replaces all XX gates with CNOTs and additional single qubit rotations."
+CNOTRotationsToXXRGates::usage="CNOTRotationsToXXRGates[st] takes a gate list and replaces all CNOT and single-qubit rotations by XX and R gates."
+XXRGatesToCNOTRotations::usage="XXRGatesToCNOTRotations[st] takes a gate list and replaces all XX and R gates with CNOTs and single-qubit rotations."
 
 Begin["`Private`"];
 (*Set debug to True to run additional tests during running the methods.*)
@@ -185,23 +196,23 @@ CreatePOVMFromGateList[NGateList[st],n,{DropZero->OptionValue[DropZero]}]
 ]
 
 (*Relabel qubits in list numIn in the list format input st with numbers in numOut. Note that numIn must be of the same length as numOut.*)
-RelabelQubits[st_,numIn_,numOut_]:=Module[{pos,st2,act},(
+RelabelQubits[st_,numIn_,numOut_]:=Module[{pos,st2,act},
 IsListForm[st,"RelabelQubits"];
 st2=st;
 Do[
 Which[
 st2[[i]][[1]]==-2,
 act=Flatten[If[MemberQ[numIn,#],numOut[[Position[numIn,#][[1]]]],#]&/@st2[[i]][[3]]];
-st2=ReplacePart[st2,i->{-2,st2[[i]][[2]],act}];
+st2=ReplacePart[st2,i->{-2,st2[[i]][[2]],act}]
 ,
 MemberQ[{-1,0},st2[[i]][[1]]],st2=ReplacePart[st2,i->{st2[[i]][[1]],pos=Flatten[Position[numIn,st2[[i]][[2]]]];If[Length[pos]!=0,numOut[[pos]][[1]],st2[[i]][[2]]],pos=Flatten[Position[numIn,st2[[i]][[3]]]];If[Length[pos]!=0,numOut[[pos]][[1]],st2[[i]][[3]]]}],
 MemberQ[{1,2,3,4,5,6},st2[[i]][[1]]],st2=ReplacePart[st2,i->{st2[[i]][[1]],st2[[i]][[2]],pos=Flatten[Position[numIn,st2[[i]][[3]]]];If[Length[pos]!=0,numOut[[pos]][[1]],st2[[i]][[3]]]}],
+st2[[i]][[1]]==100,act=Flatten[If[MemberQ[numIn,#],numOut[[Position[numIn,#][[1]]]],#]&/@st2[[i]][[3]]];st2=ReplacePart[st2,i->{100,st2[[i]][[2]],act}],
+st2[[i]][[1]]==101,st2=ReplacePart[st2,i->{101,st2[[i]][[2]],pos=Flatten[Position[numIn,st2[[i]][[3]]]];If[Length[pos]!=0,numOut[[pos]][[1]],st2[[i]][[3]]]}],
 True,Throw[StringForm["Gate type is not supported by RelabelQubits."]]
 ],
-{i,Length[st]}
-];
-st2
-)]
+{i,Length[st]}];
+st2]
 
 (*Counts the number of cnot gates in the list st*)
 CNOTCount[st_]:=
@@ -229,6 +240,8 @@ MemberQ[{-1,0},st2[[i]][[1]]],,
 MemberQ[{1,2,3},st2[[i]][[1]]],st2=ReplacePart[st2,i->{st2[[i]][[1]],-st2[[i]][[2]],st2[[i]][[3]]}],
 st2[[i]][[1]]==4,Throw[StringForm["Measurements/Traces in InverseGateList[] are not reversable."]],
 st2[[i]][[1]]==5||st2[[i]][[1]]==6,st2=ReplacePart[st2,i->{If[st2[[i]][[2]]==5,6,5],st2[[i]][[2]],st2[[i]][[3]]}],
+st2[[i]][[1]]==100,st2=ReplacePart[st2,i->{100,-st2[[i]][[2]],st2[[i]][[3]]}],
+st2[[i]][[1]]==101,st2=ReplacePart[st2,i->{101,{-st2[[i]][[2]][[1]],st2[[i]][[2]][[2]]},st2[[i]][[3]]}],
 True,Throw[StringForm["Unknown gate `` in InverseGateList[] cannot be reversed.",st2[[i]]]]
 ],
 {i,Length[st]}
@@ -255,7 +268,21 @@ If[MemberQ[{1,2,3},st2[[i]][[1]]],st2=ReplacePart[st2,i->{st2[[i]][[1]],AdjustAn
 st2
 )]
 
-GateTypes[]:=Module[{},Print["Gate types for UniversalQCompiler"];Print["{-2,diag,act}: diagonal gate with entries diag on the qubits listed in act"];Print["{-1,n,m}: CZ with qubit n the control and m the target"];Print["{0,n,m}: CNOT with qubit n the control and m the target"];Print["{1,t,n}: x-rotation by angle t for qubit n"];Print["{2,t,n}: y-rotation by angle t for qubit n"];Print["{3,t,n}: z-rotation by angle t for qubit n"];Print["{4,0,n}: trace out qubit n"];Print["{4,1,n}: measure qubit n in the computational basis"];Print["{5,0,n}: qubit n starts in state |0>"];Print["{5,1,n}: qubit n starts in state |1>"];Print["{6,0,n}: qubit n is postselected on |0>"];Print["{6,1,n}: qubit n is postselected on |1>"]]
+GateTypes[]:=Module[{},Print["Gate types for UniversalQCompiler"];
+Print["{-2,diag,act}: diagonal gate with entries diag on the qubits listed in act"];
+Print["{-1,n,m}: CZ with qubit n the control and m the target"];
+Print["{0,n,m}: CNOT with qubit n the control and m the target"];
+Print["{1,t,n}: x-rotation by angle t for qubit n"];
+Print["{2,t,n}: y-rotation by angle t for qubit n"];
+Print["{3,t,n}: z-rotation by angle t for qubit n"];
+Print["{4,0,n}: trace out qubit n"];
+Print["{4,1,n}: measure qubit n in the computational basis"];
+Print["{5,0,n}: qubit n starts in state |0>"];
+Print["{5,1,n}: qubit n starts in state |1>"];
+Print["{6,0,n}: qubit n is postselected on |0>"];
+Print["{6,1,n}: qubit n is postselected on |1>"];
+Print["{100,t,{n,m}}: XX-gate with angle t on qubits n,m"];
+Print["{101,{t,p},n}: R-gate with angles t,p on qubit n"]]
 
 (*Transforms a list in list format to a list containing the corresponding matrices*)
 ListFormToOp[list_,n_:Null]:=Module[{numQubits=n},
@@ -265,9 +292,12 @@ Which[
 MemberQ[{1,2,3},list[[1]]],RotGateM[list[[2]],list[[1]],list[[3]],numQubits],
 list[[1]]==0,CNOTM[list[[2]],list[[3]],numQubits],
 list[[1]]==-1,CZM[list[[2]],list[[3]],numQubits],
+list[[1]]==100,XXM[list[[2]],list[[3]][[1]],list[[3]][[2]],numQubits],
+list[[1]]==101,RGateM[list[[2]][[1]],list[[2]][[2]],list[[3]],numQubits],
 list[[1]]==-2,If[Dimensions[list[[2]]]!= {},DiagMat[list[[2]],list[[3]],numQubits],Throw[StringForm["Unspecified diagonal gate cannot be represented as a matrix using ListFormToOp[]"]]],
 list[[1]]==4,Throw[StringForm["Measurements/Trace cannot be represented by matrices using ListFormToOp[]"]],
-list[[1]]>=5,Throw[StringForm["Starting in |0> or postselection cannot be represented by matrices using ListFormToOp[]"]]
+list[[1]]==5,Throw[StringForm["Starting in |0> or |1> cannot be represented by matrices using ListFormToOp[]"]],
+list[[1]]==6,Throw[StringForm["Postselection cannot be represented by matrices using ListFormToOp[]"]]
 ],ListFormToOp[#,numQubits]&/@list]]
 
 (*Transforms a list in list format to a list containing the corresponding string representations of the gates*)
@@ -278,10 +308,11 @@ If[Length[Dimensions[list]]==1,If[list=={},{},ListFormToStrSingleGate[list]],Lis
 ]
 
 Options[SimplifyGateList]={FullSimp->True};
-SimplifyGateList[st_,OptionsPattern[]]:=Module[{traceout,ancillain,ancillaout},
-IsListForm[st,"SimplifyGateList"];
+SimplifyGateList[st_,OptionsPattern[]]:=Module[{traceout,ancillain,ancillaout,out},
+IsListForm[st,"SimplifyGateList"];If[Cases[st,{100,_,_}]==={}&&Cases[st,{101,_,_}]==={},
 traceout=Cases[st,{4,_,_}];ancillain=Cases[st,{5,_,_}];ancillaout=Cases[st,{6,_,_}];
-Join[ancillain,Reverse[SimplifyGateListReverseGateOrder[Reverse[DeleteCases[st,x_/;x[[1]]>=4]],OptionValue[FullSimp]]],ancillaout,traceout]]
+out=Join[ancillain,Reverse[SimplifyGateListReverseGateOrder[Reverse[DeleteCases[st,x_/;x[[1]]>=4]],OptionValue[FullSimp]]],ancillaout,traceout],
+Throw[StringForm["Gatetypes 100 and 101 cannot be used in SimplifyGateList[]"]]];out]
 
 NSimplifyGateList[st_]:=Module[{},
 IsListForm[st,"NSimplifyGateList"];
@@ -298,7 +329,7 @@ IsListForm[st];
 If[n===Null,n1=NumberOfQubits[st]];ancillain=SortBy[Cases[st,{5,_,_}],Last];
 If[ancillain==={},ancillainnums={},ancillainnums=Transpose[ancillain][[3]];ancillainvals=Transpose[ancillain][[2]]];ancillaout=SortBy[Cases[st,{6,_,_}],Last];
 If[ancillaout==={},ancillaoutnums={},ancillaoutnums=Transpose[ancillaout][[3]];ancillaoutvals=Transpose[ancillaout][[2]]];
-st2=DeleteCases[st,{x_/;x>=5,_,_}];mat={{1}};k=0;
+st2=DeleteCases[st,{x_/;x==5||x==6,_,_}];mat={{1}};k=0;
 For[i=1,i<=n1,i++,mat=KroneckerProduct[mat,If[MemberQ[ancillainnums,i],k++;KetV[ancillainvals[[k]],2],IdentityMatrix[2]]]];
 isAnalytic=True;
 For[i=1,i<=Length[st2],i++,
@@ -344,15 +375,17 @@ If[four1s,NCreateInstrumentFromList[st,n,DropZero->False],four0s=MemberQ[st,{4,0
 If[four0s,NCreateChannelFromList[st,n],NCreateIsometryFromList[st,n]]]]
 
 ListFormToStrSingleGate[list_]:=Switch[list[[1]],
--2,ToString[StringForm["D(`1`)(`2`)", list[[2]], list[[3]] ]],
--1,CZNotationStr[list[[2]], list[[3]]],
-0,CNOTNotationStr[list[[2]], list[[3]]],
-1,ToString[StringForm["Rx(`2`)(`1`)", list[[3]], list[[2]] ]],
-2,ToString[StringForm["Ry(`2`)(`1`)", list[[3]], list[[2]] ]],
-3,ToString[StringForm["Rz(`2`)(`1`)", list[[3]], list[[2]] ]],
-4,If[list[[2]]==0,ToString[StringForm["Tr(`1`)", list[[3]] ]],ToString[StringForm["M(`1`)", list[[3]]]]],
-5,ToString[StringForm["|`1`>(`1`)",list[[2]], list[[3]]]],
-6,ToString[StringForm["<`1`|(`1`)",list[[2]], list[[3]]]],
+-2,ToString[StringForm["D(`1`)(`2`)",list[[2]],list[[3]] ]],
+-1,CZNotationStr[list[[2]],list[[3]]],
+0,CNOTNotationStr[list[[2]],list[[3]]],
+1,ToString[StringForm["Rx(`2`)(`1`)",list[[3]],list[[2]] ]],
+2,ToString[StringForm["Ry(`2`)(`1`)",list[[3]],list[[2]] ]],
+3,ToString[StringForm["Rz(`2`)(`1`)",list[[3]],list[[2]] ]],
+4,If[list[[2]]==0,ToString[StringForm["Tr(`1`)",list[[3]] ]],ToString[StringForm["M(`1`)",list[[3]]]]],
+5,ToString[StringForm["|`1`>(`1`)",list[[2]],list[[3]]]],
+6,ToString[StringForm["<`1`|(`1`)",list[[2]],list[[3]]]],
+100,ToString[StringForm["XX(`1`)(`2`,`3`))",list[[2]],list[[3,1]],list[[3,2]]]],
+101,ToString[StringForm["RGate(`1`,`2`)(`3`))",list[[2,1]],list[[2,2]],list[[3]]]],
 _,Throw[StringForm["Unknown gate type found in ListFormToStr[]."]]
 ]
 
@@ -361,7 +394,6 @@ Merges the single-qubit gates if this helps to reduce the gate count.
 Commutes Rz rotation with the control and Rx rotations with the target of C-NOT gates. Moreover, two following C-NOT gates
 are canceled out.
 Output: Simplified gate sequence.*)
-(*ToDo: Remove input n, since it is not necessary*)
 SimplifyGateListReverseGateOrder[st_,FullSimp_:True] := Module[{numQubits, maxNum,A,stNew,controlQubit,targetQubit,mergedContr,commutedContr,mergedTar,commutedTarg},( 
 numQubits=NumberOfQubits[st];
 A=ConstantArray[{},numQubits]; (*List to save the collected single-qubit gates on the n qubits. The list of a qubit is updated after merging.*)
@@ -583,6 +615,18 @@ gate=KroneckerProduct@@ReplacePart[iden,i->Outer[Times,sup,sup]]+KroneckerProduc
 gate
 )]
 
+XXM[phi_,i_:Null,j_:Null,n_:Null]:=Module[{out,sys,n1,i1=i,j1=j},If[i1===Null,If[j1===Null,i1=1;j1=2,If[j1==1,i1=2,i1=1]]];
+If[j1===Null,If[i1==2,j1=1,j1=2]];
+If[n===Null,n1=Max[i1,j1],n1=n];
+out={{Cos[phi],0,0,-I*Sin[phi]},{0,Cos[phi],-I*Sin[phi],0},{0,-I*Sin[phi],Cos[phi],0},{-I*Sin[phi],0,0,Cos[phi]}};
+sys=Insert[Insert[Table[1,n1-2],2,Min[i1,j1]],2,Max[i1,j1]];
+Tensor[IdentityMatrix[2^n1/4],out,sys,Table[2,n1]]]
+
+RGateM[th_,phi_,i_:1,n_:Null]:=Module[{out,sys,n1},
+If[n===Null,n1=i,n1=n];
+out={{Cos[th/2],-I*E^(-I*phi)*Sin[th/2]},{-I*E^(I*phi)*Sin[th/2],Cos[th/2]}};
+sys=Insert[Table[1,n1-1],2,i];Tensor[IdentityMatrix[2^n1/2],out,sys,Table[2,n1]]]
+
 (*Created the diagonal matrix with diagonal entries in diag and acting on the qubits listed in 
 the list act, where we consider n qubits in total.*)
 DiagMat[diag_,act1_:Null,n1_:Null]:=
@@ -619,7 +663,7 @@ vec=vec;*)
 mat[[-Length[vec];;-1]]=ConjSimplify[vec];
 mat\[Transpose]
 )]
-CT[m_] := ConjugateTranspose[m];
+
 (*Take a rectangular matrix with more columns than rows and adds zero rows until it is square *)
 FillZero[r_] := 
  Module[{dr, dc}, {dr, dc} = Dimensions[r]; 
@@ -649,7 +693,7 @@ th=2*ArcTan2[u[[1,1]],Im@u[[1,2]]];
 th//Chop
 )]  
 
-(*----------------------------------------Apply gates efficiently (pucblic)---------------------------------*)
+(*----------------------------------------Apply gates efficiently (public)---------------------------------*)
 
 (*Apply a diagonal gate diagGate={diagonalEntries,actionQubits,bits} efficiently to matrix.*)
 (*ToDo: Improve efficiency by parallelizing the computation.*)
@@ -732,13 +776,13 @@ PrintCircuit[st_,n:Except[_?OptionQ]:Null,OptionsPattern[]]:= Module[{draw=False
 
 (*----------------------------------------Visualization of cirucits (private)---------------------------------*)
 
-computeGridForm[st_, n_:Null(*,maxGatesPerLine_:Infinity*)]:= Module[{postSelSetectingOps,initializingOps,gate,maxNum,numQubits,gatesOnEachWireSoFar,type, controlOrParameter, target,czType,cnotType,controlWireLength, targetWireLength,controlGate,shortestWire,longestWireLength,blankMustBeLeftBlankGate,blankWhichCanBeOverwrittenGate,minIndex, maxIndex,index,leftMostPositionThatCanBeFilled,overWriteOrAppend,
+computeGridForm[st_, n_:Null(*,maxGatesPerLine_:Infinity*)]:= Module[{xxType,postSelSetectingOps,initializingOps,gate,maxNum,numQubits,gatesOnEachWireSoFar,type, controlOrParameter, target,czType,cnotType,controlWireLength, targetWireLength,controlGate,shortestWire,longestWireLength,blankMustBeLeftBlankGate,blankWhichCanBeOverwrittenGate,minIndex, maxIndex,index,leftMostPositionThatCanBeFilled,overWriteOrAppend,
 positionForNewGate,positionsOfblackMustBeLeftBlankGateOnTarget,positionsOfblackMustBeLeftBlankGateOnControl,diagType,setActingQubits,positionsOfblackMustBeLeftBlankGate,wire},
 (*set some relevant constants*)
 initializingOps={};
 postSelSetectingOps={};
 diagType=-2;
-czType = -1;cnotType = 0; 
+czType = -1;cnotType = 0;xxType = 100; 
 controlGate = "control";
 blankWhichCanBeOverwrittenGate = "blankWhichCanBeOverwritten";
 blankMustBeLeftBlankGate = "mustBeLeftBlank";
@@ -756,9 +800,9 @@ gatesOnEachWireSoFar = ConstantArray[{}, numQubits];
 Do[
 {type, controlOrParameter, target} = gate;
 
-If[type == czType || type == cnotType|| type == diagType,
+If[type == czType || type == cnotType||type == xxType || type == diagType,
 (*Code for multiqubit gates*)
-If[type==diagType,
+If[type==diagType ||type == xxType,
 {minIndex, maxIndex}={Min[target],Max[target]}
 ,
 {minIndex, maxIndex} = If[target < controlOrParameter, {target,controlOrParameter} , {controlOrParameter, target}];
@@ -770,7 +814,7 @@ gatesOnEachWireSoFar[[index]] = PadRightHelp[gatesOnEachWireSoFar[[index]] , pos
 gatesOnEachWireSoFar[[index, positionForNewGate]]  = blankMustBeLeftBlankGate; 
 ];
 (*Fill up all entries where the multi-qubit gate is acting on with "blankMustBeLeftBlankGate" until the current gate in two steps:*)
-If[type==diagType,
+If[type==diagType ||type == xxType,
 setActingQubits=target,
 setActingQubits={controlOrParameter,target}
 ];
@@ -884,15 +928,17 @@ post={Black, Text["<1|", pos+{0.2,0}]}
 ]
 ];
 out=Which[TrueQ[gate == "mustBeLeftBlank"],{},TrueQ[gate == "blankWhichCanBeOverwritten"],{},
-{type, controlOrParameter,target} = gate;TrueQ[(type==0    || type==-1)&& controlOrParameter==-pos[[2]]],
+{type, controlOrParameter,target} = gate;TrueQ[(type==0 ||type==-1)&& controlOrParameter==-pos[[2]]],
 (*Control is recognized (from a gate type 0 or -1)*)
 {Black, Disk[pos, 0.1]},
 type == 1, 
-{White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, Text[If[OptionValue[DrawRotationAngles],ToString[StringForm["Rx(`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]],FormatType->StandardForm],"Rx"], pos]},
+{White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, Text[If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["Rx(`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]]],"Rx"], pos]},
 type == 2,
-{White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, Text[If[OptionValue[DrawRotationAngles],ToString[StringForm["Ry(`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]],FormatType->StandardForm],"Ry"], pos]},
+{White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, Text[If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["Ry(`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]]],"Ry"], pos]},
 type == 3,
-{White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, Text[If[OptionValue[DrawRotationAngles],ToString[StringForm["Rz(`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]],FormatType->StandardForm],"Rz"], pos]},
+{White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, Text[If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["Rz(`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]]],"Rz"], pos]},
+type == 101,
+{White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, Text[If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["R(`1`,`2`)",ScientificForm[controlOrParameter[[1]],OptionValue[Digits]],ScientificForm[controlOrParameter[[2]],OptionValue[Digits]]]],"R"], pos]},
 type == 4,
 If[controlOrParameter==0,
 {White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, Text["Tr", pos]},
@@ -902,18 +948,24 @@ type == 0,
 {White, EdgeForm[Black], Disk[pos , 0.2], Black, Line[{pos - {0,0.2}, pos + {0,0.2}}] , Line[{pos - {0.2,0}, pos + {0.2,0}}] },
 type == -1,
 {Black, Disk[pos, 0.05]},
-type==-2,
+type==-2 || type== 100,
 If[Min[target]==-pos[[2]],
-(*Draw the whole diagonal gate*)
+(*Draw the whole diagonal or XX gate*)
 If[Max[target]==Min[target],
-{White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, Text["\[CapitalDelta]", pos]},
+{White, EdgeForm[Black], Rectangle[pos - {0.2,0.2}, pos + {0.2,0.2}], Black, If[type == -2,Text["\[CapitalDelta]", pos],Text["XX", pos]]},
 sortTarget=Sort[target];
 (*Draw box for diagonal gate*)
 box={White, EdgeForm[Black], Rectangle[{pos[[1]] -0.2,-sortTarget[[-1]]-0.2},{pos[[1]] +0.2,pos[[2]]+0.2}]};
-(*Text for diag gate*)
+(*Text for diag or XX gate*)
 If[EvenQ[sortTarget[[-1]]-sortTarget[[1]]],
-text={Black, Text[Style["\[CapitalDelta]",FontSize->30], pos+{0,0.5-(sortTarget[[-1]]-sortTarget[[1]])/2.}]},
-text={Black, Text[Style["\[CapitalDelta]",FontSize->30], pos+{0,-(sortTarget[[-1]]-sortTarget[[1]])/2.}]}
+text={Black, Text[If[type == -2,
+If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["\[CapitalDelta](`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]]],"\[CapitalDelta]"],
+If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["XX(`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]]],"XX"]],
+pos+{0,0.5-(sortTarget[[-1]]-sortTarget[[1]])/2.}]},
+text={Black, Text[If[type == -2,
+If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["\[CapitalDelta](`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]]],"\[CapitalDelta]"],
+If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["XX(`1`)",ScientificForm[controlOrParameter,OptionValue[Digits]]]],"XX"]],
+pos+{0,-(sortTarget[[-1]]-sortTarget[[1]])/2.}]}
 ];
 (*Do print the wire for the qubits where the diagonal gate is anot cting on*)
 actQubits={};
@@ -979,12 +1031,26 @@ TrueQ[gate  == "mustBeLeftBlank"], wireType[wire,gateIndex,gridForm],
 TrueQ[gate  == "blankWhichCanBeOverwritten"], wireType[wire,gateIndex,gridForm],
 {type, controlOrParameter,target} = gate;
 type==0, If[wire==target,"\\targ",ToString[StringForm["\\ctrl{``}", target-controlOrParameter]]],
-type == 1, If[OptionValue[DrawRotationAngles],ToString[StringForm["\\gate{R_x(\\textnormal{$`1`$})}",ToString[TeXForm[ScientificForm[controlOrParameter,OptionValue[Digits]]]]],FormatType->StandardForm],"\\gate{R_x}"],
-type ==2, If[OptionValue[DrawRotationAngles],ToString[StringForm["\\gate{R_y(\\textnormal{$`1`$})}",ToString[TeXForm[ScientificForm[controlOrParameter,OptionValue[Digits]]]]],FormatType->StandardForm],"\\gate{R_y}"],
-type ==3, If[OptionValue[DrawRotationAngles],ToString[StringForm["\\gate{R_z(\\textnormal{$`1`$})}",ToString[TeXForm[ScientificForm[controlOrParameter,OptionValue[Digits]]]]],FormatType->StandardForm],"\\gate{R_z}"],
+type == 1, If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["\\gate{R_x(\\textnormal{$`1`$})}",ParamToLatex[controlOrParameter,OptionValue[Digits]]]],"\\gate{R_x}"],
+type ==2, If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["\\gate{R_y(\\textnormal{$`1`$})}",ParamToLatex[controlOrParameter,OptionValue[Digits]]]],"\\gate{R_y}"],
+type ==3, If[OptionValue[DrawRotationAngles],ToStringStandard[StringForm["\\gate{R_z(\\textnormal{$`1`$})}",ParamToLatex[controlOrParameter,OptionValue[Digits]]]],"\\gate{R_z}"],
+type == 101, If[OptionValue[DrawRotationAngles],
+ToStringStandard[StringForm["\\gate{R(\\textnormal{$`1`$,$`2`$})}",ParamToLatex[controlOrParameter[[1]],OptionValue[Digits]],ParamToLatex[controlOrParameter[[2]],OptionValue[Digits]]]],
+"\\gate{R}"
+],
 type == 4, "\\meter",
 type == -1, If[wire==target,"\\control \\qw",ToString[StringForm["\\ctrl{``}", target-controlOrParameter]]],
-type == -2, If[wire==Min[target],ToString[StringForm["\\multigate{``}{\\Delta}",Max[target]-Min[target]]], "\\ghost{\\Delta}"]
+type == -2, If[wire==Min[target],ToString[StringForm["\\multigate{``}{\\Delta}",Max[target]-Min[target]]], "\\ghost{\\Delta}"],
+type == 100, If[wire==Min[target],
+If[OptionValue[DrawRotationAngles],
+ToStringStandard[StringForm["\\multigate{`1`}{XX(\\textnormal{$`2`$})}",Max[target]-Min[target],ParamToLatex[controlOrParameter,OptionValue[Digits]]]],
+ToStringStandard[StringForm["\\multigate{``}{XX}",Max[target]-Min[target]]]
+],
+If[OptionValue[DrawRotationAngles],
+ToStringStandard[StringForm["\\ghost{`1`}",ToStringStandard[StringForm["XX(\\textnormal{$`2`$})",Max[target]-Min[target],ParamToLatex[controlOrParameter,OptionValue[Digits]]]]]],
+"\\ghost{XX}"
+]
+]
 ];
 string = StringJoin[string, token, " "];
 ];
@@ -995,7 +1061,13 @@ string = StringJoin[string, "\n}"];
 Return[string];
 ];
 
-(*Helper method*)
+(*Helper methods*)
+(*Create Strings*)
+ParamToLatex[param_,digits_]:=
+ToString[TeXForm[ScientificForm[param,digits]]];
+
+ToStringStandard[str_]:=ToString[str,FormatType->StandardForm];
+
 wireType[wireIndex_,positionAlongWire_,gridForm_]:=Module[{out,positionMst},
 positionMst=Position[gridForm[[wireIndex,1;;positionAlongWire]],_?(If[Length[#]==0,False,MemberQ[{4},#[[1]]]]&)];
 If[Length[positionMst]==0,
@@ -1196,8 +1268,7 @@ Options[XYXDec]={Simp->True};
 (*Except[_?OptionQ] is a trick to allow for optional arguments (together with options). Without this trick, having something like f[x_,y:Null,OptionsPattern[]]:=...
 would give an error calling f[x,option\[Rule]optionValue]*)
 XYXDec[u_,action:Except[_?OptionQ]:Null,OptionsPattern[]] :=Module[{st,angles,actionQ}, (
-IsQubitIsometry[u,"XYXDec
-"];
+IsQubitIsometry[u,"XYXDec"];
 angles=XYXDecomposition[u];
 Switch[action,
 Null,actionQ=1,
@@ -1937,7 +2008,7 @@ su = CNOTM[1,2,2].su;
 traceFixingMatrix = Simplify[RealTrace3[su]];
 su = Simplify[traceFixingMatrix.su];
 st = DecUnitary2QubitsHelp[su, n, {precision-> OptionValue[precision], UpToDiagonal->False,FullSimp->OptionValue[FullSimp]}];
-Return[Join[{{3,-Arg[traceFixingMatrix[[1,1]]/traceFixingMatrix[[2,2]]],n-1}, {0,n,n-1}}, st]];
+Return[Join[{{3,-Arg[traceFixingMatrix[[1,1]]/traceFixingMatrix[[2,2]]],n-1},{0,n,n-1}}, st]];
 ];
 
 (*-------------------------------------------Basic helper methods (private) --------------------------------------------*)
@@ -1989,7 +2060,7 @@ SignZeroNeg[x_] :=
    
    (*Helpful for making the gate list numerical without making integers numerical *)
 NGateList[st_]:=Module[{i,out={},a,b,c},For[i=1,i<=Length[st],i++,{a,b,c}=st[[i]];
-out=Insert[out,If[MemberQ[{-2,1,2,3},a],{a,N[b],c},{a,b,c}],-1]];out]
+out=Insert[out,If[MemberQ[{-2,1,2,3,100,101},a],{a,N[b],c},{a,b,c}],-1]];out]
 
 (* Takes an angle and outputs angle' where 0\[LessEqual]angle'<2\[Pi]*)
 AdjustAngleHelp[angl_]:=Mod[angl,2Pi]
@@ -2015,6 +2086,10 @@ i denotes the control while j denotes the target.
 CZNotationStr[i_,j_]:=ToString[StringForm["Cz(`1`)(`2`)",i,j]]
 
 CZ[i_,j_]:={-1,i,j}
+
+XX[phi_,i_,j_]:={100,phi,{i,j}}
+
+RGate[th_,phi_,i_]:={101,{th,phi},i}
 
 (*Given a,b,c,d, returns the matrix specified by e^ia*Rz(b).Ry(c).Rz(d) *)
 ApplyZYZ[a_,b_,c_,d_]:=Exp[I*d]*RotGate[c,3].RotGate[b,2].RotGate[a,3]
@@ -2162,7 +2237,7 @@ NumberOfQubits[st_]:=Module[{},(
 If[st=={},0,
 Max[Map[ If[#[[1]] == -1 || #[[1]] == 0, 
 Max[#[[2]], #[[3]]],
-If[#[[1]]==-2,Max[#[[3]]],
+If[#[[1]]==-2||#[[1]]==100,Max[#[[3]]],
  #[[3]]]] &  ,st]]
  ]
  )]
@@ -3725,22 +3800,129 @@ IsQubitIsometry[v_,methodName_:"UNKNOWN"]:=Module[{numRow,numCol},
   ]
   
 IsListFormHelp[gate_,methodName_]:=Module[{},
-  If[MemberQ[{-2,-1,0,1,2,3,4,5,6},gate[[1]]],,Throw[StringJoin["The gate ",ToString[gate]," appearing as an input in method ",methodName ," is of unknown type."]]];
+  If[MemberQ[{-2,-1,0,1,2,3,4,5,6,100,101},gate[[1]]],,Throw[StringJoin["The gate ",ToString[gate]," appearing as an input in method ",methodName ," is of unknown type."]]];
   Which[
    MemberQ[{-2},gate[[1]]],If[gate[[2]]=={}&&gate[[3]]=={},Goto[LabelEnd];];If[Length[Dimensions[gate[[2]]]]==1&&Length[Dimensions[gate[[3]]]]==1,,Throw[StringJoin["The dimensions of the parameter lists of the diagonal gate ",ToString[gate],"  appearing in the input of method ",methodName," are not supported."]]];
    If[Log2[Length[gate[[2]]]]==Length[gate[[3]]],,Throw[ToString[StringForm["The diagonal gate `1` appearing as an input in method `2` does not contain 2^`3` entries.",gate,methodName,Length[gate[[3]]]]]]],
     MemberQ[{-1,0},gate[[1]]],If[IntegerQ[gate[[2]]]&&IntegerQ[gate[[3]]],,Throw[StringJoin["There is a control gate ",ToString[gate]," appearing as an input in method ",methodName ," that has a control or a target qubit number that is not an integer."]]];
     If[gate[[2]]==gate[[3]],Throw[StringJoin["There is a controlled gate ",ToString[gate]," appearing as an input in method ",methodName ," that has a control qubit number equal to the target qubit number (which is not supported)."]]],
-  MemberQ[{1,2,3},gate[[1]]], If[NumericQ[gate[[2]]]&&IntegerQ[gate[[3]]],,Throw[StringJoin["There is a rotation gate ",ToString[gate]," appering as an input in method ",methodName ," that has a wrong types."]]],
-  MemberQ[{4,5,6},gate[[1]]],If[MemberQ[{0,1},gate[[2]]]&&IntegerQ[gate[[3]]],,Throw[ToString[StringForm["The gate `1` appearing as an input in method `2` has unknown parameter types.",gate,methodName]]]]
+  MemberQ[{1,2,3},gate[[1]]], If[NumericQ[gate[[2]]]&&IntegerQ[gate[[3]]],,Throw[StringJoin["There is a rotation gate ",ToString[gate]," appering as an input in method ",methodName ," that has incorrect parameters."]]],
+  MemberQ[{4,5,6},gate[[1]]],If[MemberQ[{0,1},gate[[2]]]&&IntegerQ[gate[[3]]],,Throw[ToString[StringForm["The gate `1` appearing as an input in method `2` has unknown parameter types.",gate,methodName]]]],
+ MemberQ[{100},gate[[1]]],If[Length[gate[[3]]]==2&&IntegerQ[gate[[3]][[1]]]&&IntegerQ[gate[[3]][[2]]]&&NumericQ[gate[[2]]],,Throw[StringJoin["There is an XX gate ",ToString[gate]," appering as an input in method ",methodName ," that has incorrect parameters."]]],
+MemberQ[{101},gate[[1]]],If[Length[gate[[2]]]==2&&NumericQ[gate[[2]][[1]]]&&NumericQ[gate[[2]][[2]]]&&IntegerQ[gate[[3]]],,Throw[StringJoin["There is an R gate ",ToString[gate]," appering as an input in method ",methodName ," that has incorrect parameters."]]]
 ];
 Label[LabelEnd];
   ];
   
-IsListForm[st_,methodName_:"UNKNOWN"]:=Module[{postsel,postselnums,traceout,traceoutnums,measure,measurenums,int1,int2,int3},If[st=={},,If[Length[Dimensions[st]]==1, IsListFormHelp[st,methodName],postsel=Cases[st,{6,_,_}];If[postsel==={},postselnums={},postselnums=Transpose[postsel][[3]]];traceout=Cases[st,{4,0,_}];If[traceout==={},traceoutnums={},traceoutnums=Transpose[traceout][[3]]];measure=Cases[st,{4,1,_}];If[measure==={},measurenums={},measurenums=Transpose[measure][[3]]];int1=Intersection[postselnums,traceoutnums];int2=Intersection[postselnums,measurenums];int3=Intersection[traceoutnums,measurenums];If[int1==={},,Throw[StringJoin["For qubits ",ToString[int1]," appering as an input in method ",methodName ," there is both a postselection and a trace."]]];If[int2==={},,Throw[StringJoin["For qubits ",ToString[int2]," appering as an input in method ",methodName ," there is both a postselection and a measurement."]]];If[int3==={},,Throw[StringJoin["For qubits ",ToString[int3]," appering as an input in method ",methodName ," there is both a trace and a measurement."]]];IsListFormHelp[#,methodName]&/@st]]]
+IsListForm[st_,methodName_:"UNKNOWN"]:=Module[{postsel,postselnums,traceout,traceoutnums,measure,measurenums,int1,int2,int3},If[st=={},,If[Length[Dimensions[st]]==1, IsListFormHelp[st,methodName],postsel=Cases[st,{6,_,_}];If[postsel==={},postselnums={},postselnums=Transpose[postsel][[3]]];traceout=Cases[st,{4,0,_}];If[traceout==={},traceoutnums={},traceoutnums=Transpose[traceout][[3]]];measure=Cases[st,{4,1,_}];If[measure==={},measurenums={},measurenums=Transpose[measure][[3]]];int1=Intersection[postselnums,traceoutnums];int2=Intersection[postselnums,measurenums];int3=Intersection[traceoutnums,measurenums];If[int1==={},,Throw[StringJoin["For qubits ",ToString[int1]," appearing as an input in method ",methodName ," there is both a postselection and a trace."]]];If[int2==={},,Throw[StringJoin["For qubits ",ToString[int2]," appearing as an input in method ",methodName ," there is both a postselection and a measurement."]]];If[int3==={},,Throw[StringJoin["For qubits ",ToString[int3]," appearing as an input in method ",methodName ," there is both a trace and a measurement."]]];IsListFormHelp[#,methodName]&/@st]]]
   
 PrepareForQASM[st_]:=Module[{out,traceouts,traceoutnums,i},out=NGateList[st];If[Cases[out,{5,_,_}]==={},,Print["Notice: ancillas found in the input have been removed.  Output gate sequence corresponds to the same operation as the input provided the ancillas in the input sequence start in the correct states."];out=DeleteCases[out,{5,_,_}]];If[Cases[out,{-2,_,_}]==={},,Throw["Error in PrepareForQASM: diagonal gates found in the input, which is not supported by QASM. You may want to decompose them using DecDiagGate[]."];out=DeleteCases[out,{-2,_,_}]];If[Cases[st,{6,_,_}]==={},,Print["Warning: postselection gate found in the input has been removed.  Output gate sequence may not be as intended."];out=DeleteCases[out,{6,_,_}]];traceouts=Cases[st,{4,0,_}];If[traceouts==={},,traceoutnums=Transpose[traceouts][[3]];Print["Notice: trace out gate found in the input has been replaced by measurement.  Forgetting the outcome will recover the same operation as the input."];out=DeleteCases[out,{4,0,_}];For[i=1,i<=Length[traceoutnums],i++,out=Insert[out,{4,1,traceoutnums[[i]]},-1]]];out] 
-  
+
+Options[PickRandomCircuitIsometry]={TotGates->False}
+PickRandomCircuitIsometry[qubitsin_,qubitsout_,totcnots_,OptionsPattern[]]:=Module[{i,out,type,cnots,ctrl,targ}, 
+  If[qubitsin>qubitsout,Throw[StringForm["PickRandomCircuitIsometry Error: number of input qubits must be smaller than number of output qubits."]]];
+  out=Table[{5,0,j},{j,1,qubitsout-qubitsin}];
+  If[OptionValue[TotGates],
+  For[i=1,i<=totcnots,i++,ctrl=0;targ=0;type=RandomInteger[{0, 3}];
+  If[type == 0,While[ctrl==targ,ctrl=RandomInteger[{1,qubitsout}];targ=RandomInteger[{1,qubitsout}]];
+     out=Insert[out,{0,ctrl,targ},-1], out=Insert[out,{type,2*\[Pi]*RandomReal[],RandomInteger[{1,qubitsout}]},-1]]]
+     , 
+  out=Join[out,Table[{3,2*\[Pi]*RandomReal[],j},{j,qubitsout-qubitsin+1,qubitsout}]];
+  out=Join[out,Table[{2,2*\[Pi]*RandomReal[],j},{j,1,qubitsout}]]; 
+  out=Join[out,Table[{3,2*\[Pi]*RandomReal[],j},{j,1,qubitsout}]]; 
+  For[i=1,i<=totcnots,i++,ctrl=0;targ=0; 
+    While[ctrl==targ,ctrl=RandomInteger[{1,qubitsout}];targ=RandomInteger[{1,qubitsout}]];
+    out=Insert[out,{0,ctrl,targ},-1]; 
+    out=Insert[out,{2,2*\[Pi]*RandomReal[],ctrl},-1]; 
+    out=Insert[out,{3,2*\[Pi]*RandomReal[],ctrl},-1]; 
+    out=Insert[out,{2,2*\[Pi]*RandomReal[],targ},-1]; 
+    out=Insert[out,{1,2*\[Pi]*RandomReal[],targ},-1]]];
+out]
+   
+(* Commands for conversion to XX and R *)
+
+(* outputs (a,b,c,d) such that U is equal to Rx[a] followed by R[b,c] up to the phase E^(I*d) *)
+ RxRGateDecomp[U_]:=Module[{a,b,c,d,th,phi},
+ {a,b,c,d}=XYXDecomposition[U];
+ th=2*ArcCos[Cos[c]*Cos[b/2]];
+ If[Chop[(Cos[c]*Cos[b/2])^2-1]==0,phi=-\[Pi]/2,
+ If[Chop[c]>0,phi=ArcSin[Sin[b/2]/(1-(Cos[c]*Cos[b/2])^2)^(1/2)]-\[Pi],
+ If[Chop[c]<0,phi=-ArcSin[Sin[b/2]/(1-(Cos[c]*Cos[b/2])^2)^(1/2)],
+ If[Chop[c]==0,phi=-\[Pi]/2]]]];
+ {a-c,th,phi,d}]
+
+ (* Replaces all CNOT gates with XX gates and additional single qubit rotations *)
+ ReplaceCNOTWithXX[st_]:=Module[{out=st,i,pos,cnotposns,ctrl,targ},
+ cnotposns=Flatten[Position[st,{0,_,_}]];
+ For[i=Length[cnotposns],i>=1,i--,pos=cnotposns[[i]];ctrl=out[[pos]][[2]];
+ targ=out[[pos]][[3]];out=Delete[out,pos];out=Insert[out,Ry[\[Pi]/2,ctrl],pos];
+ out=Insert[out,Rx[\[Pi]/2,ctrl],pos];out=Insert[out,Rx[\[Pi]/2,targ],pos];
+ out=Insert[out,XX[\[Pi]/4,ctrl,targ],pos];out=Insert[out,Ry[-\[Pi]/2,ctrl],pos]];
+ out]
+ 
+ (* Replaces all XX gates with CNOTs and additional single qubit rotations *)
+ReplaceXXWithCNOT[st_]:=Module[{out=st,i,j,pos,xxposns,gates},
+xxposns=Flatten[Position[st,{100,_,_}]];
+For[i=Length[xxposns],i>=1,i--,pos=xxposns[[i]];
+gates=DecUnitary2Qubits[XXM[out[[pos]][[2]]],out[[pos]][[3]]];
+out=Delete[out,pos];For[j=Length[gates],j>=1,j--,out=Insert[out,gates[[j]],pos]]];
+out]  
+      
+  (* Replaces single qubit rotations after XX gates with X rotations before the XX and an R-gate after *)
+ReplaceRotationsWithRGatesAfterXX[st_]:=Module[{out=st,i,j,pos,xxposns,ctrl,targ,toremove,ctrlst,targst,ctrlfin,targfin,a,b,c,d,U},
+xxposns=Flatten[Position[st,{100,_,_}]];
+For[i=Length[xxposns],i>=1,i--,pos=xxposns[[i]];ctrl=out[[pos]][[3]][[1]];
+targ=out[[pos]][[3]][[2]];toremove={};ctrlst={};targst={};
+ctrlfin=False;targfin=False;
+For[j=pos+1,j<=Length[out],j++,If[ctrlfin&&targfin,Break[]];
+If[(CheckGateForQubit[out[[j]],ctrl]&&Not[ctrlfin])||(CheckGateForQubit[out[[j]],targ]&&Not[targfin]),
+If[MemberQ[{1,2,3},out[[j]][[1]]],toremove=Insert[toremove,{j},-1];
+If[out[[j]][[3]]==ctrl,ctrlst=Insert[ctrlst,out[[j]],-1],If[out[[j]][[3]]==targ,targst=Insert[targst,out[[j]],-1],Print["ReplaceWithRAfterXX: Error"]]],If[CheckGateForQubit[out[[j]],ctrl],ctrlfin=True];
+If[CheckGateForQubit[out[[j]],targ],targfin=True]]]];
+(* The next line could presumably be uncommented *)
+(* ctrlst=MergeSameRot[ctrlst];targst=MergeSameRot[targst];*)
+out=Delete[out,toremove];If[Length[ctrlst]==1&&ctrlst[[1,1]]==1,out=Insert[out,ctrlst[[1]],pos];pos++,
+ctrlst=Transpose[Insert[Drop[Transpose[ctrlst],-1],Table[1,{i,1,Length[ctrlst]}],-1]];
+U=CreateOperationFromGateList[ctrlst];{a,b,c,d}=RxRGateDecomp[U];
+If[Chop[b]!=0,out=Insert[out,RGate[b,c,ctrl],pos+1]];
+out=Insert[out,Rx[a,ctrl],pos];pos++];If[Length[targst]==1&&targst[[1,1]]==1,out=Insert[out,targst[[1]],pos];pos++,
+targst=Transpose[Insert[Drop[Transpose[targst],-1],Table[1,{i,1,Length[targst]}],-1]];
+U=CreateOperationFromGateList[targst];{a,b,c,d}=RxRGateDecomp[U];
+If[Chop[b]!=0,out=Insert[out,RGate[b,c,targ],pos+1]];out=Insert[out,Rx[a,targ],pos];pos++]];
+out]
+   
+(* Replaces all RGates with single qubit rotations using XYXDecomposition *)
+ReplaceRGatesWithRotations[st_]:=Module[{out=st,i,gate,pos,Rposns,a,b,c,d,U},
+Rposns=Flatten[Position[out,{101,_,_}]];
+For[i=Length[Rposns],i>=1,i--,pos=Rposns[[i]];gate=out[[pos]];
+U=CreateOperationFromGateList[{Insert[Drop[gate,-1],1,-1]}];
+{a,b,c,d}=XYXDecomposition[U];out=Delete[out,pos];
+If[Chop[c]!=0,out=Insert[out,{1,c,gate[[3]]},pos]];
+If[Chop[b]!=0,out=Insert[out,{2,b,gate[[3]]},pos]];
+If[Chop[a]!=0,out=Insert[out,{1,a,gate[[3]]},pos]]];
+out]     
+      
+(* checks whether the given gate acts on qubit n *)
+CheckGateForQubit[gate_,n_]:=If[(gate[[1]]==0&&(gate[[2]]==n||gate[[3]]==n))||(gate[[1]]==1&&gate[[3]]==n)||(gate[[1]]==2&&gate[[3]]==n)||(gate[[1]]==3&&gate[[3]]==n)||(gate[[1]]==-1&&(gate[[2]]==n||gate[[3]]==n))||(gate[[1]]==4&&gate[[3]]==n)||(gate[[1]]==6&&gate[[3]]==n)||(gate[[1]]==-2&&MemberQ[gate[[3]],n])||(gate[[1]]==100&&MemberQ[gate[[3]],n])||(gate[[1]]==101&&gate[[3]]==n),True,False]      
+    
+(* Replaces initial rotations by RGates where initial means before any non-rotation gate NB: this passes through initial ancilla *)
+ReplaceInitialRotationsByRGates[st_]:=Module[{out=st,i,j,pos,xxposns,ctrl,targ,toremove,ctrlst,targst,ctrlfin,targfin,a,b,c,d,U,ancillain},
+ancillain=SortBy[Cases[st,{5,_,_}],Last];out=DeleteCases[out,{5,_,_}];pos=1;
+For[ctrl=NumberOfQubits[st],ctrl>=1,ctrl--,toremove={};ctrlst={};ctrlfin=False;
+For[j=pos,j<=Length[out],j++,If[ctrlfin,Break[]];If[CheckGateForQubit[out[[j]],ctrl]&&Not[ctrlfin],
+If[MemberQ[{1,2,3},out[[j]][[1]]],
+toremove=Insert[toremove,{j},-1];ctrlst=Insert[ctrlst,out[[j]],-1],ctrlfin=True]]];
+(* ctrlst=MergeSameRot[ctrlst];targst=MergeSameRot[targst];*)
+out=Delete[out,toremove];If[ctrlst==={},,If[Length[ctrlst]==1&&ctrlst[[1,1]]==1,If[Chop[ctrlst[[1]][[2]]]!=0,out=Insert[out,RGate[-ctrlst[[1]][[2]],0,ctrl],pos]],ctrlst=Transpose[Insert[Drop[Transpose[ctrlst],-1],Table[1,{i,1,Length[ctrlst]}],-1]];
+U=CreateOperationFromGateList[ctrlst];{a,b,c,d}=RxRGateDecomp[U];
+If[Chop[b]!=0,out=Insert[out,RGate[b,c,ctrl],pos]];
+If[Chop[a]!=0,out=Insert[out,RGate[-a,0,ctrl],pos]]]]];
+Join[ancillain,out]]      
+          
+CNOTRotationsToXXRGates[st_]:=Module[{out},out=ReplaceCNOTWithXX[st];out=ReplaceRotationsWithRGatesAfterXX[out];ReplaceInitialRotationsByRGates[out]]
+
+XXRGatesToCNOTRotations[st_]:=Module[{out},out=ReplaceXXWithCNOT[st];out=ReplaceRGatesWithRotations[out];SimplifyGateList[out]]          
+          
 End[];
 
 EndPackage[]
